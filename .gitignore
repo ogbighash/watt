@@ -1,0 +1,6 @@
+build/
+*.app
+DerivedData/
+.DS_Store
+# macOS metadata files that network drives and zip tools leave behind
+._*
