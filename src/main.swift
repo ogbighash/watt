@@ -167,13 +167,19 @@ func readSmartBattery() -> (Int, Int, Double, String)? {
           let dict = propsRef?.takeRetainedValue() as? [String: Any]
     else { return (-1, -1, 0, "Unknown") }
 
-    let design = dict["DesignCapacity"] as? Int ?? 0
-    let maxCap = (dict["AppleRawMaxCapacity"] as? Int) ?? (dict["MaxCapacity"] as? Int) ?? 0
-    let cycles = dict["CycleCount"] as? Int ?? -1
-    let tempRaw = dict["Temperature"] as? Int ?? 0
+    // macOS 27 moved the capacity numbers into a "BatteryData" group and stopped
+    // publishing the battery temperature here. Read the top level first (macOS 26
+    // and earlier), then that group. A missing temperature shows as "—".
+    let data = dict["BatteryData"] as? [String: Any] ?? [:]
+    func num(_ key: String) -> Int? { (dict[key] as? Int) ?? (data[key] as? Int) }
+    let design = num("DesignCapacity") ?? 0
+    // Never the plain "MaxCapacity": on Apple Silicon that is a percentage (100), not mAh.
+    let maxCap = num("AppleRawMaxCapacity") ?? num("FullChargeCapacity") ?? 0
+    let cycles = num("CycleCount") ?? -1
+    let tempRaw = num("Temperature") ?? 0
     let tempC = Double(tempRaw) / 100.0
 
-    var health = design > 0 ? Int((Double(maxCap) / Double(design) * 100).rounded()) : -1
+    var health = (design > 0 && maxCap > 0) ? Int((Double(maxCap) / Double(design) * 100).rounded()) : -1
     if health > 100 { health = 100 }   // match System Settings, which caps at 100%
 
     let pfs = dict["PermanentFailureStatus"] as? Int ?? 0
@@ -740,7 +746,7 @@ if CommandLine.arguments.contains("--print") {
         print("charge:   \(s.percent)%  (\(s.charging ? "charging" : s.plugged ? "plugged, not charging" : "on battery"))")
         print("health:   \(s.healthPercent)%  ·  \(s.condition)")
         print("cycles:   \(s.cycles)")
-        print(String(format: "temp:     %.1f C", s.tempC))
+        print(s.tempC > 0 ? String(format: "temp:     %.1f C", s.tempC) : "temp:     — (not reported by macOS)")
         switch readCapState() {
         case .cap(let lim):  print("cap:      \(lim >= 100 ? "off (100%)" : "\(lim)%")")
         case .unsupported:   print("cap:      needs an Apple Silicon Mac")
